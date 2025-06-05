@@ -19,7 +19,13 @@ export const PROCESSING_EVENTS = {
   //states for processing the debugging
   DEBUG_START: "debug-start",
   DEBUG_SUCCESS: "debug-success",
-  DEBUG_ERROR: "debug-error"
+  DEBUG_ERROR: "debug-error",
+
+  // --- START OF ADDED CODE ---
+  GENERAL_PROBLEM_START: "general-problem-start",
+  GENERAL_PROBLEM_SUCCESS: "general-problem-success",
+  GENERAL_PROBLEM_ERROR: "general-problem-error"
+  // --- END OF ADDED CODE ---
 } as const
 
 // At the top of the file
@@ -236,6 +242,31 @@ const electronAPI = {
       ipcRenderer.removeListener("delete-last-screenshot", subscription)
     }
   },
+  // --- START OF ADDED CODE ---
+  triggerProcessGeneralProblem: () => ipcRenderer.invoke("trigger-process-general-problem"),
+
+  onGeneralProblemStart: (callback: () => void) => {
+    const subscription = () => callback();
+    ipcRenderer.on(PROCESSING_EVENTS.GENERAL_PROBLEM_START, subscription);
+    return () => {
+      ipcRenderer.removeListener(PROCESSING_EVENTS.GENERAL_PROBLEM_START, subscription);
+    };
+  },
+  onGeneralProblemSuccess: (callback: (data: any) => void) => {
+    const subscription = (_: any, data: any) => callback(data);
+    ipcRenderer.on(PROCESSING_EVENTS.GENERAL_PROBLEM_SUCCESS, subscription);
+    return () => {
+      ipcRenderer.removeListener(PROCESSING_EVENTS.GENERAL_PROBLEM_SUCCESS, subscription);
+    };
+  },
+  onGeneralProblemError: (callback: (error: string) => void) => {
+    const subscription = (_: any, error: string) => callback(error);
+    ipcRenderer.on(PROCESSING_EVENTS.GENERAL_PROBLEM_ERROR, subscription);
+    return () => {
+      ipcRenderer.removeListener(PROCESSING_EVENTS.GENERAL_PROBLEM_ERROR, subscription);
+    };
+  },
+  // --- END OF ADDED CODE ---
   deleteLastScreenshot: () => ipcRenderer.invoke("delete-last-screenshot")
 }
 

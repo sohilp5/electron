@@ -193,7 +193,41 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
               </div>
             </div>
           )}
-
+          {/* Solve General Problem Button */}
+          {screenshotCount > 0 && (
+            <div
+              className={`flex flex-col cursor-pointer rounded px-2 py-1.5 hover:bg-white/10 transition-colors ${
+                 credits <= 0 && false ? "opacity-50 cursor-not-allowed" : "" // false to always enable
+              }`}
+              onClick={async () => {
+                 if (credits <= 0 && false) { // Actual credit check
+                    showToast("Out of Credits", "You need more credits to solve problems.", "error");
+                    return;
+                }
+                try {
+                  await window.electronAPI.triggerProcessGeneralProblem();
+                } catch (error) {
+                  console.error("Error triggering general problem processing:", error);
+                  showToast("Error", "Failed to start general problem solving.", "error");
+                }
+              }}
+              title="Solve as a general problem (math, case study, etc.)"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] leading-none">Solve General</span>
+                {/* You can assign a different shortcut if needed, or keep it manual click */}
+                {/* For example, Cmd/Ctrl + G */}
+                <div className="flex gap-1 ml-2">
+                   <button className="bg-white/10 rounded-md px-1.5 py-1 text-[11px] leading-none text-white/70">
+                    {COMMAND_KEY}
+                  </button>
+                  <button className="bg-white/10 rounded-md px-1.5 py-1 text-[11px] leading-none text-white/70">
+                    G 
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Separator */}
           <div className="mx-2 h-4 w-px bg-white/20" />
 

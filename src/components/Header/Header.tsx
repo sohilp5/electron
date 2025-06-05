@@ -19,7 +19,13 @@ const LANGUAGES = [
   { value: 'go', label: 'Go' },
   { value: 'rust', label: 'Rust' },
   { value: 'typescript', label: 'TypeScript' },
+    // --- START OF ADDED CODE ---
+  { value: 'oraclesql', label: 'Oracle SQL' },
+  // --- END OF ADDED CODE ---
+  { value: 'sql', label: 'SQL' },
+
 ];
+
 
 export function Header({ currentLanguage, setLanguage, onOpenSettings }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -53,7 +59,7 @@ export function Header({ currentLanguage, setLanguage, onOpenSettings }: HeaderP
     // Also save the language preference to config
     window.electronAPI.updateConfig({
       language: lang
-    }).catch(error => {
+    }).catch((error: unknown) => { // --- MODIFIED LINE ---
       console.error('Failed to save language preference:', error);
     });
   };

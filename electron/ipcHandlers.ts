@@ -348,4 +348,22 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
       return { success: false, error: "Failed to delete last screenshot" }
     }
   })
+
+    ipcMain.handle("trigger-process-general-problem", async () => {
+    if (!configHelper.hasApiKey()) {
+        const mainWindow = deps.getMainWindow();
+        if (mainWindow) {
+            // Ensure PROCESSING_EVENTS is correctly accessed, e.g., from deps or a shared source
+            mainWindow.webContents.send(deps.PROCESSING_EVENTS.API_KEY_INVALID);
+        }
+        return { success: false, error: "API key required" };
+    }
+    // Ensure processingHelper and its new method are available
+    if (deps.processingHelper && typeof deps.processingHelper.processGeneralProblem === 'function') {
+      await deps.processingHelper.processGeneralProblem();
+      return { success: true };
+    }
+    return { success: false, error: "General problem processing not available." };
+  });
+  
 }

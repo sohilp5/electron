@@ -1,4 +1,4 @@
-// ProcessingHelper.ts
+// electron/ProcessingHelper.ts
 import fs from "node:fs"
 import path from "node:path"
 import { ScreenshotHelper } from "./ScreenshotHelper"
@@ -733,9 +733,37 @@ export class ProcessingHelper {
         });
       }
 
-      // Create prompt for solution generation
+      // --- MODIFIED PROMPT (Added instruction for code comments) ---
       const promptText = `
-Generate a detailed solution for the following coding problem:
+Generate a detailed solution for the following coding problem.
+The response MUST be structured with the following numbered sections, starting each on a new line with the exact headers:
+
+1. Thought Process / Walkthrough:
+[Provide a detailed step-by-step explanation of how to arrive at the solution. This should cover:
+- Initial understanding of the problem.
+- Discussion of potential approaches (including naive/brute-force if relevant to the thought process) and their trade-offs.
+- Justification for the chosen (optimal) approach.
+- A high-level plan before coding.
+Use Markdown for formatting, including lists, bolding, italics, and inline code ticks (\`) if needed. Ensure mathematical expressions are LaTeX formatted (e.g., $O(n \\log n)$).]
+
+2. Code:
+\`\`\`${language}
+// Provide a clean, optimized implementation in ${language} here.
+// IMPORTANT: Ensure the code is well-commented, explaining the logic of key parts, variable purposes, and complex operations.
+// The code should be complete and runnable.
+\`\`\`
+
+3. Post-Solution Reflection (Thoughts):
+[Provide a reflection on the solution. This can include:
+- Key insights or learning points.
+- Reasoning behind specific choices in the optimal solution (if not fully covered in the walkthrough).
+- Brief discussion of alternative optimal approaches or minor trade-offs.
+- Edge cases considered.
+Use Markdown for formatting. Ensure mathematical expressions are LaTeX formatted.]
+
+IMPORTANT: You MUST provide sections 4 and 5 in the specified format.
+4. Time Complexity: [Strictly start with O(notation) followed by a hyphen and then your detailed explanation. Example: O(n log n) - This is because the algorithm involves sorting... If complexity cannot be determined, write "O(?) - Detailed analysis pending for time complexity."]
+5. Space Complexity: [Strictly start with O(notation) followed by a hyphen and then your detailed explanation. Example: O(n) - We use an auxiliary array... If complexity cannot be determined, write "O(?) - Detailed analysis pending for space complexity."]
 
 PROBLEM STATEMENT:
 ${problemInfo.problem_statement}
@@ -751,18 +779,12 @@ ${problemInfo.example_output || "No example output provided."}
 
 LANGUAGE: ${language}
 
-I need the response in the following format:
-1. Code: A clean, optimized implementation in ${language}
-2. Your Thoughts: A list of key insights and reasoning behind your approach
-3. Time complexity: O(X) with a detailed explanation (at least 2 sentences)
-4. Space complexity: O(X) with a detailed explanation (at least 2 sentences)
-
-For complexity explanations, please be thorough. For example: "Time complexity: O(n) because we iterate through the array only once. This is optimal as we need to examine each element at least once to find the solution." or "Space complexity: O(n) because in the worst case, we store all elements in the hashmap. The additional space scales linearly with the input size."
-
-Your solution should be efficient, well-commented, and handle edge cases.
+Your solution should be efficient and handle edge cases.
 `;
+      // --- END OF MODIFIED PROMPT ---
 
-      let responseContent;
+
+      let responseContent = ""; // Initialize with empty string
       
       if (config.apiProvider === "openai") {
         // OpenAI processing
@@ -777,14 +799,14 @@ Your solution should be efficient, well-commented, and handle edge cases.
         const solutionResponse = await this.openaiClient.chat.completions.create({
           model: config.solutionModel || "gpt-4o",
           messages: [
-            { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations." },
+            { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations, following the specified format strictly." },
             { role: "user", content: promptText }
           ],
           max_tokens: 4000,
           temperature: 0.2
         });
 
-        responseContent = solutionResponse.choices[0].message.content;
+        responseContent = solutionResponse.choices[0].message.content || "";
       } else if (config.apiProvider === "gemini")  {
         // Gemini processing
         if (!this.geminiApiKey) {
@@ -801,7 +823,7 @@ Your solution should be efficient, well-commented, and handle edge cases.
               role: "user",
               parts: [
                 {
-                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem:\n\n${promptText}`
+                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem, following the specified format strictly:\n\n${promptText}`
                 }
               ]
             }
@@ -822,8 +844,8 @@ Your solution should be efficient, well-commented, and handle edge cases.
 
           const responseData = response.data as GeminiResponse;
           
-          if (!responseData.candidates || responseData.candidates.length === 0) {
-            throw new Error("Empty response from Gemini API");
+          if (!responseData.candidates || responseData.candidates.length === 0 || !responseData.candidates[0].content.parts[0].text) {
+            throw new Error("Empty or invalid response from Gemini API");
           }
           
           responseContent = responseData.candidates[0].content.parts[0].text;
@@ -844,13 +866,13 @@ Your solution should be efficient, well-commented, and handle edge cases.
         }
         
         try {
-          const messages = [
+          const messages: Anthropic.Messages.MessageParam[] = [ 
             {
-              role: "user" as const,
+              role: "user" as const, 
               content: [
                 {
-                  type: "text" as const,
-                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem:\n\n${promptText}`
+                  type: "text" as const, 
+                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem, following the specified format strictly:\n\n${promptText}`
                 }
               ]
             }
@@ -858,17 +880,21 @@ Your solution should be efficient, well-commented, and handle edge cases.
 
           // Send to Anthropic API
           const response = await this.anthropicClient.messages.create({
-            model: config.solutionModel || "claude-3-7-sonnet-20250219",
+            model: config.solutionModel || "claude-3-7-sonnet-20250219", 
             max_tokens: 4000,
             messages: messages,
             temperature: 0.2
           });
+          
+          if (Array.isArray(response.content) && response.content.length > 0 && response.content[0].type === 'text') {
+            responseContent = response.content[0].text;
+          } else {
+            throw new Error("Invalid response format from Anthropic API");
+          }
 
-          responseContent = (response.content[0] as { type: 'text', text: string }).text;
         } catch (error: any) {
           console.error("Error using Anthropic API for solution:", error);
 
-          // Add specific handling for Claude's limitations
           if (error.status === 429) {
             return {
               success: false,
@@ -888,73 +914,70 @@ Your solution should be efficient, well-commented, and handle edge cases.
         }
       }
       
-      // Extract parts from the response
-      const codeMatch = responseContent.match(/```(?:\w+)?\s*([\s\S]*?)```/);
-      const code = codeMatch ? codeMatch[1].trim() : responseContent;
-      
-      // Extract thoughts, looking for bullet points or numbered lists
-      const thoughtsRegex = /(?:Thoughts:|Key Insights:|Reasoning:|Approach:)([\s\S]*?)(?:Time complexity:|$)/i;
-      const thoughtsMatch = responseContent.match(thoughtsRegex);
-      let thoughts: string[] = [];
-      
-      if (thoughtsMatch && thoughtsMatch[1]) {
-        // Extract bullet points or numbered items
-        const bulletPoints = thoughtsMatch[1].match(/(?:^|\n)\s*(?:[-*•]|\d+\.)\s*(.*)/g);
-        if (bulletPoints) {
-          thoughts = bulletPoints.map(point => 
-            point.replace(/^\s*(?:[-*•]|\d+\.)\s*/, '').trim()
-          ).filter(Boolean);
-        } else {
-          // If no bullet points found, split by newlines and filter empty lines
-          thoughts = thoughtsMatch[1].split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean);
-        }
+      // --- PARSING LOGIC (Simplified for complexity) ---
+      const sections = {
+        walkthrough: "Walkthrough not found in AI response.",
+        code: `// Code in ${language} not found in AI response.`,
+        reflection: "Reflection not found in AI response.",
+        time_complexity: "Time complexity information was not provided by the AI in the expected format.", // Default
+        space_complexity: "Space complexity information was not provided by the AI in the expected format." // Default
+      };
+
+      const responseContentTrimmed = responseContent.trim();
+
+      const walkthroughRegex = /1\.\s*Thought Process \/ Walkthrough:([\s\S]*?)(?=\n2\.\s*Code:|$)/i;
+      const codeRegex = /2\.\s*Code:\s*```(?:[a-z0-9_.-]+)?\s*([\s\S]*?)\s*```/i; 
+      const reflectionRegex = /3\.\s*Post-Solution Reflection \(Thoughts\):([\s\S]*?)(?=\n4\.\s*Time Complexity:|$)/i;
+      // Regexes for complexity now look for the header and capture everything until the next numbered section or end.
+      const timeComplexityRegex = /4\.\s*Time Complexity:\s*([\s\S]*?)(?=\n5\.\s*Space Complexity:|$)/i;
+      const spaceComplexityRegex = /5\.\s*Space Complexity:\s*([\s\S]*?)(?=\n\s*(?:[A-Z]|$)|$)/i; // End or next major section
+
+      const walkthroughMatch = responseContentTrimmed.match(walkthroughRegex);
+      if (walkthroughMatch && walkthroughMatch[1]) {
+        sections.walkthrough = walkthroughMatch[1].trim();
       }
       
-      // Extract complexity information
-      const timeComplexityPattern = /Time complexity:?\s*([^\n]+(?:\n[^\n]+)*?)(?=\n\s*(?:Space complexity|$))/i;
-      const spaceComplexityPattern = /Space complexity:?\s*([^\n]+(?:\n[^\n]+)*?)(?=\n\s*(?:[A-Z]|$))/i;
-      
-      let timeComplexity = "O(n) - Linear time complexity because we only iterate through the array once. Each element is processed exactly one time, and the hashmap lookups are O(1) operations.";
-      let spaceComplexity = "O(n) - Linear space complexity because we store elements in the hashmap. In the worst case, we might need to store all elements before finding the solution pair.";
-      
-      const timeMatch = responseContent.match(timeComplexityPattern);
-      if (timeMatch && timeMatch[1]) {
-        timeComplexity = timeMatch[1].trim();
-        if (!timeComplexity.match(/O\([^)]+\)/i)) {
-          timeComplexity = `O(n) - ${timeComplexity}`;
-        } else if (!timeComplexity.includes('-') && !timeComplexity.includes('because')) {
-          const notationMatch = timeComplexity.match(/O\([^)]+\)/i);
-          if (notationMatch) {
-            const notation = notationMatch[0];
-            const rest = timeComplexity.replace(notation, '').trim();
-            timeComplexity = `${notation} - ${rest}`;
-          }
-        }
-      }
-      
-      const spaceMatch = responseContent.match(spaceComplexityPattern);
-      if (spaceMatch && spaceMatch[1]) {
-        spaceComplexity = spaceMatch[1].trim();
-        if (!spaceComplexity.match(/O\([^)]+\)/i)) {
-          spaceComplexity = `O(n) - ${spaceComplexity}`;
-        } else if (!spaceComplexity.includes('-') && !spaceComplexity.includes('because')) {
-          const notationMatch = spaceComplexity.match(/O\([^)]+\)/i);
-          if (notationMatch) {
-            const notation = notationMatch[0];
-            const rest = spaceComplexity.replace(notation, '').trim();
-            spaceComplexity = `${notation} - ${rest}`;
-          }
+      const codeMatch = responseContentTrimmed.match(codeRegex);
+      if (codeMatch && codeMatch[1]) {
+        sections.code = codeMatch[1].trim();
+      } else {
+        const genericCodeBlockMatch = responseContentTrimmed.match(/```(?:[a-z0-9_.-]+)?\s*([\s\S]*?)\s*```/i);
+        if (genericCodeBlockMatch && genericCodeBlockMatch[1]) {
+            const textBeforeCode = responseContentTrimmed.substring(0, genericCodeBlockMatch.index).toLowerCase();
+            const isInWalkthrough = walkthroughMatch && genericCodeBlockMatch.index > walkthroughMatch.index && genericCodeBlockMatch.index < (walkthroughMatch.index + walkthroughMatch[0].length);
+            const reflectionMatchForCodeCheck = responseContentTrimmed.match(reflectionRegex);
+            const isInReflection = reflectionMatchForCodeCheck && genericCodeBlockMatch.index > reflectionMatchForCodeCheck.index && genericCodeBlockMatch.index < (reflectionMatchForCodeCheck.index + reflectionMatchForCodeCheck[0].length);
+
+            if (!isInWalkthrough && !isInReflection) {
+                 sections.code = genericCodeBlockMatch[1].trim();
+                 console.warn("Used fallback regex for code extraction.");
+            }
         }
       }
 
+      const reflectionMatch = responseContentTrimmed.match(reflectionRegex);
+      if (reflectionMatch && reflectionMatch[1]) {
+        sections.reflection = reflectionMatch[1].trim();
+      }
+      
+      const timeMatch = responseContentTrimmed.match(timeComplexityRegex);
+      if (timeMatch && timeMatch[1] && timeMatch[1].trim() !== "") {
+        sections.time_complexity = timeMatch[1].trim(); // Use the raw captured content
+      }
+      
+      const spaceMatch = responseContentTrimmed.match(spaceComplexityRegex);
+      if (spaceMatch && spaceMatch[1] && spaceMatch[1].trim() !== "") {
+         sections.space_complexity = spaceMatch[1].trim(); // Use the raw captured content
+      }
+
       const formattedResponse = {
-        code: code,
-        thoughts: thoughts.length > 0 ? thoughts : ["Solution approach based on efficiency and readability"],
-        time_complexity: timeComplexity,
-        space_complexity: spaceComplexity
+        walkthrough: sections.walkthrough,
+        code: sections.code,
+        reflection: sections.reflection, 
+        time_complexity: sections.time_complexity,
+        space_complexity: sections.space_complexity
       };
+      // --- END OF PARSING LOGIC ---
 
       return { success: true, data: formattedResponse };
     } catch (error: any) {
@@ -1007,7 +1030,7 @@ Your solution should be efficient, well-commented, and handle edge cases.
       // Prepare the images for the API call
       const imageDataList = screenshots.map(screenshot => screenshot.data);
       
-      let debugContent;
+      let debugContent = ""; // Initialize
       
       if (config.apiProvider === "openai") {
         if (!this.openaiClient) {
@@ -1073,7 +1096,7 @@ If you include code examples, use proper markdown code blocks with language spec
           temperature: 0.2
         });
         
-        debugContent = debugResponse.choices[0].message.content;
+        debugContent = debugResponse.choices[0].message.content || "";
       } else if (config.apiProvider === "gemini")  {
         if (!this.geminiApiKey) {
           return {
@@ -1143,8 +1166,8 @@ If you include code examples, use proper markdown code blocks with language spec
 
           const responseData = response.data as GeminiResponse;
           
-          if (!responseData.candidates || responseData.candidates.length === 0) {
-            throw new Error("Empty response from Gemini API");
+          if (!responseData.candidates || responseData.candidates.length === 0 || !responseData.candidates[0].content.parts[0].text) {
+            throw new Error("Empty or invalid response from Gemini API for debugging");
           }
           
           debugContent = responseData.candidates[0].content.parts[0].text;
@@ -1188,16 +1211,16 @@ Here provide a clear explanation of why the changes are needed
 If you include code examples, use proper markdown code blocks with language specification.
 `;
 
-          const messages = [
+          const messages: Anthropic.Messages.MessageParam[] = [ 
             {
-              role: "user" as const,
+              role: "user" as const, 
               content: [
                 {
-                  type: "text" as const,
+                  type: "text" as const, 
                   text: debugPrompt
                 },
                 ...imageDataList.map(data => ({
-                  type: "image" as const,
+                  type: "image" as const, 
                   source: {
                     type: "base64" as const,
                     media_type: "image/png" as const, 
@@ -1216,17 +1239,21 @@ If you include code examples, use proper markdown code blocks with language spec
           }
 
           const response = await this.anthropicClient.messages.create({
-            model: config.debuggingModel || "claude-3-7-sonnet-20250219",
+            model: config.debuggingModel || "claude-3-7-sonnet-20250219", 
             max_tokens: 4000,
             messages: messages,
             temperature: 0.2
           });
           
-          debugContent = (response.content[0] as { type: 'text', text: string }).text;
+          if (Array.isArray(response.content) && response.content.length > 0 && response.content[0].type === 'text') {
+            debugContent = response.content[0].text;
+          } else {
+            throw new Error("Invalid response format from Anthropic API for debugging");
+          }
+
         } catch (error: any) {
           console.error("Error using Anthropic API for debugging:", error);
           
-          // Add specific handling for Claude's limitations
           if (error.status === 429) {
             return {
               success: false,
@@ -1278,7 +1305,7 @@ If you include code examples, use proper markdown code blocks with language spec
       const response = {
         code: extractedCode,
         debug_analysis: formattedDebugContent,
-        thoughts: thoughts,
+        thoughts: thoughts, 
         time_complexity: "N/A - Debug mode",
         space_complexity: "N/A - Debug mode"
       };
@@ -1287,6 +1314,192 @@ If you include code examples, use proper markdown code blocks with language spec
     } catch (error: any) {
       console.error("Debug processing error:", error);
       return { success: false, error: error.message || "Failed to process debug request" };
+    }
+  }
+
+  private async processGeneralProblemLLM(
+    screenshots: Array<{ path: string; data: string }>,
+    signal: AbortSignal
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    const config = configHelper.loadConfig();
+    const imageDataList = screenshots.map(s => s.data);
+    const generalProblemPrompt = ` Role: Elite Problem-Solving Assistant.
+Task: Analyze problems from screenshots. Deliver exceptionally clear, detailed, insightful, structured solutions demonstrating expert-level understanding. First, identify the problem type, then meticulously follow the specific instructions for that type below.
+
+**Tailored Instructions by Problem Type:**
+It will be one of these, first identify the type of problem from this:
+* **Mathematical Problems:**
+    1.  **Setup:** Define variables, constants, units. State relevant theorems, formulas, and assumptions.
+    2.  **Derivation:** Present steps sequentially (LaTeX for math) with brief justifications for each transformation or logical leap.
+    3.  **Result & Verification:** State the final solution unambiguously. If applicable, discuss verification methods or plausibility.
+
+* **Multiple-Choice Questions (MCQs):**
+    1.  **Correct Option:** Clearly state it (e.g., "The correct option is C").
+    2.  **Rationale for Correctness:** Provide a detailed justification (underlying principles, calculations, information).
+    3.  **Analysis of Incorrect Options:** For *each* incorrect option, give a specific, thorough explanation of its flaws (pinpoint errors in reasoning, facts, or concepts). Avoid generic dismissals.
+
+* **Data Cleaning Exercises (Python-focused):** (Goal: Deliver a WOW factor. Be extremely verbose and insightful. Highlight common and advanced pitfalls comprehensively.)
+    1.  **Issue Diagnosis:** From the provided context (even if implicit), identify and list common and specific data quality issues (e.g., missing values, outliers, inconsistencies, type errors).
+    2.  **Strategic Cleaning Plan:** For each issue, propose specific cleaning techniques or transformations.
+    3.  **Code Implementation (Python):** Provide clean, efficient, and well-commented Python code (prefer pandas, numpy) for each step.
+    4.  **Justification & Implications:** Explain the rationale behind each cleaning decision and discuss its potential impact (positive or negative) on downstream analysis/modeling.
+    5.  **Common & Expert Mistakes:** (EXTREME VERBOSITY REQUIRED) Detail frequent errors and subtle mistakes, even those made by experienced practitioners. Explain *why* these are mistakes and their consequences.
+    6. IMP: **"Wow Factor":** this section should add something that completely impresses 
+
+* **Case Studies:** (Persona: Ultra-Experienced Domain Scientist/Strategist. Goal: Deliver a WOW factor. Provide profound, novel insights, comprehensive strategies, and extreme verbosity. Your response should be a masterclass, leaving no stone unturned.)
+    1.  **Industry Context & Core Challenge:** Start with a concise yet thorough domain background, define the core challenges, and preview your overarching conclusions or strategic recommendations.
+    2.  **Systematic Deconstruction:** Articulate central issues, objectives, stakeholders, constraints, and critical success factors.
+    3.  **Advanced Analytical Framework:** Propose and justify a sophisticated analytical framework (or a combination) suitable for the case.
+    4.  **Deep-Dive Analysis & Novel Insights:** (EXTREME VERBOSITY REQUIRED)
+        * Leverage your expert persona to offer profound, non-obvious insights.
+        * Focus on subtle interdependencies, second-order effects, unstated assumptions, and points commonly overlooked.
+        * Critically evaluate all data/evidence, noting strengths, weaknesses, and potential biases.
+        * Explore multiple perspectives, rigorously challenge superficial conclusions, and anticipate counter-arguments.
+    5.  **Structured Findings:** (EXTREME VERBOSITY REQUIRED) Present your analysis under clear, thematic headings with detailed point-by-point arguments, ensuring a logical and compelling narrative.
+    6.  **Strategic Recommendations & Implications:** (EXTREME VERBOSITY REQUIRED) Conclude with robust, evidence-based, actionable recommendations. Discuss strategic implications, potential risks, mitigation strategies, and key performance indicators (KPIs).
+    7.  **Common & Expert Mistakes:** (EXTREME VERBOSITY REQUIRED) Detail frequent and subtle strategic or analytical errors relevant to the case, including those made by seasoned professionals. Explain their impact.
+    8. IMP: **"Wow Factor":** this section should add something that completely impresses 
+
+**Formatting:**
+Use Markdown for headings, lists, and bolding. Use LaTeX for math ($inline$ or $$display$$). Use python for code blocks.
+`;
+
+// You can then use this constant in your application logic, for example,
+// when constructing the messages array for an API call to an LLM.
+// console.log(generalProblemPrompt);
+    const mainWindow = this.deps.getMainWindow();
+    if (mainWindow) {
+      mainWindow.webContents.send("processing-status", {
+         message: "Analyzing general problem from screenshots...",
+         progress: 20 
+      });
+    }
+
+    try {
+      let responseContent;
+      const modelForGeneralProblem = config.solutionModel || (config.apiProvider === "anthropic" ? "claude-3-7-sonnet-20250219" : "gpt-4o"); 
+
+      if (config.apiProvider === "openai" && this.openaiClient) {
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+          { role: "system", content: generalProblemPrompt },
+          { role: "user", content: [ { type: "text", text: "Solve the problem in these images step by step:" }, ...imageDataList.map(data => ({ type: "image_url" as const, image_url: { url: `data:image/png;base64,${data}` } })) ] }
+        ];
+        if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Generating step-by-step solution...", progress: 60 });
+        const response = await this.openaiClient.chat.completions.create({ model: modelForGeneralProblem, messages: messages, max_tokens: 4000, temperature: 0.4 }, { signal });
+        responseContent = response.choices[0].message.content;
+
+      } else if (config.apiProvider === "gemini" && this.geminiApiKey) {
+        const geminiMessages: GeminiMessage[] = [
+            { role: "user", parts: [
+                { text: generalProblemPrompt + "\nSolve the problem in these images step by step:" },
+                ...imageDataList.map(data => ({ inlineData: { mimeType: "image/png", data: data } }))
+            ]}
+        ];
+        if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Generating step-by-step solution with Gemini...", progress: 60 });
+        const geminiModel = config.solutionModel || "gemini-2.0-flash"; 
+        const response = await axios.default.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${this.geminiApiKey}`,
+          { contents: geminiMessages, generationConfig: { temperature: 0.4, maxOutputTokens: 4000 } }, { signal }
+        );
+        const responseData = response.data as GeminiResponse;
+        if (!responseData.candidates || responseData.candidates.length === 0 || !responseData.candidates[0].content.parts[0].text) {
+          throw new Error("Invalid or empty response from Gemini API for general problem.");
+        }
+        responseContent = responseData.candidates[0].content.parts[0].text;
+      } else if (config.apiProvider === "anthropic" && this.anthropicClient) {
+         const messages: Anthropic.Messages.MessageParam[] = [
+            { role: "user" as const, content: [
+                { type: "text" as const, text: generalProblemPrompt + "\nSolve the problem shown in these image(s) step by step:" },
+                ...imageDataList.map(data => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/png" as const, data: data }})),
+            ]}
+        ];
+        if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Generating step-by-step solution with Anthropic...", progress: 60 });
+        const anthropicModel = config.solutionModel || "claude-3-7-sonnet-20250219"; 
+        const response = await this.anthropicClient.messages.create({ model: anthropicModel, max_tokens: 4000, messages: messages, temperature: 0.4 }, {signal});
+        
+        if (Array.isArray(response.content) && response.content.length > 0 && response.content[0].type === 'text') {
+            responseContent = response.content[0].text;
+        } else {
+            throw new Error("Invalid response format from Anthropic API for general problem.");
+        }
+      } else {
+        return { success: false, error: "AI provider not configured or client not initialized." };
+      }
+
+      if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Solution received.", progress: 100 });
+      return { success: true, data: { solution: responseContent } };
+
+    } catch (error: any) {
+      console.error("Error processing general problem with AI:", error);
+       if (axios.isCancel(error)) return { success: false, error: "Processing was canceled." };
+      return { success: false, error: error.message || "Failed to process general problem with AI." };
+    }
+  }
+
+  public async processGeneralProblem(): Promise<void> {
+    const mainWindow = this.deps.getMainWindow();
+    if (!mainWindow) return;
+
+    const config = configHelper.loadConfig();
+     if ((config.apiProvider === "openai" && !this.openaiClient) ||
+        (config.apiProvider === "gemini" && !this.geminiApiKey) ||
+        (config.apiProvider === "anthropic" && !this.anthropicClient)
+    ) {
+        this.initializeAIClient();
+        if ((config.apiProvider === "openai" && !this.openaiClient) ||
+            (config.apiProvider === "gemini" && !this.geminiApiKey) ||
+            (config.apiProvider === "anthropic" && !this.anthropicClient)
+        ) {
+            console.error(`${config.apiProvider} client/key not initialized`);
+            mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.API_KEY_INVALID);
+            return;
+        }
+    }
+
+    const GENERAL_PROBLEM_START = "general-problem-start";
+    const GENERAL_PROBLEM_SUCCESS = "general-problem-success";
+    const GENERAL_PROBLEM_ERROR = "general-problem-error";
+
+    mainWindow.webContents.send(GENERAL_PROBLEM_START);
+    const screenshotQueue = this.screenshotHelper.getScreenshotQueue();
+
+    if (!screenshotQueue || screenshotQueue.length === 0) {
+      mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.NO_SCREENSHOTS);
+      return;
+    }
+    const existingScreenshots = screenshotQueue.filter(p => fs.existsSync(p));
+     if (existingScreenshots.length === 0) {
+        mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.NO_SCREENSHOTS);
+        return;
+    }
+
+    this.currentProcessingAbortController = new AbortController(); 
+    const { signal } = this.currentProcessingAbortController;
+
+    try {
+      const screenshotsData = await Promise.all(
+        existingScreenshots.map(async (p) => ({
+          path: p,
+          data: fs.readFileSync(p).toString("base64"),
+        }))
+      );
+
+      const result = await this.processGeneralProblemLLM(screenshotsData, signal);
+
+      if (result.success) {
+        mainWindow.webContents.send(GENERAL_PROBLEM_SUCCESS, result.data);
+      } else {
+         if (result.error?.includes("API key") || result.error?.includes("OpenAI") || result.error?.includes("Gemini") || result.error?.includes("Anthropic")) {
+            mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.API_KEY_INVALID);
+        } else {
+            mainWindow.webContents.send(GENERAL_PROBLEM_ERROR, result.error);
+        }
+      }
+    } catch (error: any) {
+      console.error("Error in processGeneralProblem:", error);
+      mainWindow.webContents.send(GENERAL_PROBLEM_ERROR, error.message || "An unknown error occurred.");
+    } finally {
+        this.currentProcessingAbortController = null; 
     }
   }
 

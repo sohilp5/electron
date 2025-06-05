@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* --- START OF ADDED CODE --- */
+/* Force default cursor for all elements to maintain stealth mode */
+* {
+  cursor: default !important;
+}
+/* --- END OF ADDED CODE --- */
+
 /* Custom animations for UI elements */
 @keyframes fadeIn {
   from { opacity: 0; transform: translate(-50%, -48%); }

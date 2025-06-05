@@ -9,6 +9,51 @@ import { initAutoUpdater } from "./autoUpdater"
 import { configHelper } from "./ConfigHelper"
 import * as dotenv from "dotenv"
 
+interface MacOSWindowEnhancerAPI {
+  setEnhancedWindowProperties: (windowHandle: Buffer) => boolean;
+}
+
+let macosEnhancer: MacOSWindowEnhancerAPI | null = null;
+
+// Attempt to load the native module
+// This path needs to be correct for both development and packaged app
+let nativeModulePath = '';
+if (!app.isPackaged) {
+  // Development: path relative to project root
+  nativeModulePath = path.join(
+    process.cwd(),
+    'electron',
+    'native_modules',
+    'macos_window_enhancer',
+    'build',
+    'Release',
+    'macos_window_enhancer.node'
+  );
+  } else {
+  // Production: path within the packaged app (adjust if necessary based on electron-builder config)
+  // This assumes you've configured electron-builder to copy it to 'native_modules' in resources
+  nativeModulePath = path.join(
+    process.resourcesPath,
+    'native_modules',
+    'macos_window_enhancer.node'
+  );
+}
+
+if (process.platform === 'darwin') {
+  try {
+    if (fs.existsSync(nativeModulePath)) {
+      macosEnhancer = require(nativeModulePath);
+      console.log('[NativeModule] macos_window_enhancer loaded successfully.');
+    } else {
+      console.error(`[NativeModule] ERROR: macos_window_enhancer.node not found at ${nativeModulePath}.`);
+      console.error("[NativeModule] Please ensure it's built and correctly packaged.");
+    }
+  } catch (error) {
+    console.error('[NativeModule] Failed to load macos_window_enhancer:', error);
+    macosEnhancer = null;
+  }
+}
+
 // Constants
 const isDev = process.env.NODE_ENV === "development"
 
@@ -240,6 +285,24 @@ async function createWindow(): Promise<void> {
 
   state.mainWindow = new BrowserWindow(windowSettings)
 
+    // Apply native macOS enhancements AFTER the window is created
+  if (process.platform === 'darwin' && state.mainWindow && macosEnhancer) {
+    try {
+      const windowHandle = state.mainWindow.getNativeWindowHandle();
+      if (windowHandle && windowHandle.length > 0) { // Check if handle is valid
+        const success = macosEnhancer.setEnhancedWindowProperties(windowHandle);
+        if (success) {
+          console.log('[NativeModule] Successfully applied enhanced window properties.');
+        } else {
+          console.warn('[NativeModule] Native module indicated failure or no action for setEnhancedWindowProperties.');
+        }
+      } else {
+          console.warn('[NativeModule] Could not get a valid native window handle.');
+      }
+    } catch (error) {
+      console.error('[NativeModule] Error calling setEnhancedWindowProperties:', error);
+    }
+  }
   // Add more detailed logging for window events
   state.mainWindow.webContents.on("did-finish-load", () => {
     console.log("Window finished loading")

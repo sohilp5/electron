@@ -48,6 +48,9 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
           <option value="swift" className="bg-black text-white">Swift</option>
           <option value="kotlin" className="bg-black text-white">Kotlin</option>
           <option value="ruby" className="bg-black text-white">Ruby</option>
+          {/* --- START OF ADDED CODE --- */}
+          <option value="oraclesql" className="bg-black text-white">Oracle SQL</option>
+          {/* --- END OF ADDED CODE --- */}
           <option value="sql" className="bg-black text-white">SQL</option>
           <option value="r" className="bg-black text-white">R</option>
         </select>
