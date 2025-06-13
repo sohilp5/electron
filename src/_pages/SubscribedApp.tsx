@@ -89,37 +89,37 @@ const SubscribedApp: React.FC<SubscribedAppProps> = ({
     return () => cleanupFunctions.forEach((fn) => fn());
   }, [queryClient, showToast, view, setView]); // Added view to dependency array
 
-  // Dynamically update the window size
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // // Dynamically update the window size
+  // useEffect(() => {
+  //   if (!containerRef.current) return;
 
-    const updateDimensions = () => {
-      if (!containerRef.current) return;
-      const height = containerRef.current.scrollHeight || 600;
-      const width = containerRef.current.scrollWidth || 800;
-      window.electronAPI?.updateContentDimensions({ width, height });
-    };
+  //   const updateDimensions = () => {
+  //     if (!containerRef.current) return;
+  //     const height = containerRef.current.scrollHeight || 600;
+  //     const width = containerRef.current.scrollWidth || 800;
+  //     window.electronAPI?.updateContentDimensions({ width, height });
+  //   };
 
-    updateDimensions(); // Initial call
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    resizeObserver.observe(containerRef.current);
+  //   updateDimensions(); // Initial call
+  //   const resizeObserver = new ResizeObserver(updateDimensions);
+  //   resizeObserver.observe(containerRef.current);
 
-    const mutationObserver = new MutationObserver(updateDimensions);
-    mutationObserver.observe(containerRef.current, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      characterData: true
-    });
+  //   const mutationObserver = new MutationObserver(updateDimensions);
+  //   mutationObserver.observe(containerRef.current, {
+  //     childList: true,
+  //     subtree: true,
+  //     attributes: true,
+  //     characterData: true
+  //   });
     
-    const delayedUpdate = setTimeout(updateDimensions, 300); // Shorter delay
+  //   const delayedUpdate = setTimeout(updateDimensions, 300); // Shorter delay
 
-    return () => {
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-      clearTimeout(delayedUpdate);
-    };
-  }, [view]); // Re-run when view changes to ensure correct sizing
+  //   return () => {
+  //     resizeObserver.disconnect();
+  //     mutationObserver.disconnect();
+  //     clearTimeout(delayedUpdate);
+  //   };
+  // }, [view]); // Re-run when view changes to ensure correct sizing
 
   return (
     <div ref={containerRef} className="min-h-0">

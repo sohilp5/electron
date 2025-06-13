@@ -563,7 +563,8 @@ const Solutions: React.FC<SolutionsProps> = ({
           setLanguage={setLanguage}
         />
       ) : (
-        <div ref={contentRef} className="relative w-full"> 
+        // <div ref={contentRef} className="relative w-full"> 
+        <div className="relative h-screen overflow-y-auto bg-black/70 backdrop-blur-sm">
           <div className="space-y-3 px-4 py-3">
             {solutionCode && extraScreenshots.length > 0 && ( 
               <div className="bg-transparent w-fit">

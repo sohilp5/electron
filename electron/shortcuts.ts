@@ -91,15 +91,17 @@ export class ShortcutsHelper {
       this.deps.moveWindowRight()
     })
 
+    // --- EDITED SECTION: Reversed Up and Down window movement ---
     globalShortcut.register("CommandOrControl+Down", () => {
-      console.log("Command/Ctrl + down pressed. Moving window down.")
-      this.deps.moveWindowDown()
+      console.log("Command/Ctrl + down pressed. Moving window up.")
+      this.deps.moveWindowUp()
     })
 
     globalShortcut.register("CommandOrControl+Up", () => {
-      console.log("Command/Ctrl + Up pressed. Moving window Up.")
-      this.deps.moveWindowUp()
+      console.log("Command/Ctrl + Up pressed. Moving window down.")
+      this.deps.moveWindowDown()
     })
+    // --- END EDITED SECTION ---
 
     globalShortcut.register("CommandOrControl+B", () => {
       console.log("Command/Ctrl + B pressed. Toggling window visibility.")
@@ -112,13 +114,13 @@ export class ShortcutsHelper {
     })
 
     // Adjust opacity shortcuts
-    globalShortcut.register("CommandOrControl+[", () => {
-      console.log("Command/Ctrl + [ pressed. Decreasing opacity.")
+    globalShortcut.register("CommandOrControl+,", () => {
+      console.log("Command/Ctrl + , pressed. Decreasing opacity.")
       this.adjustOpacity(-0.1)
     })
 
-    globalShortcut.register("CommandOrControl+]", () => {
-      console.log("Command/Ctrl + ] pressed. Increasing opacity.")
+    globalShortcut.register("CommandOrControl+.", () => {
+      console.log("Command/Ctrl + . pressed. Increasing opacity.")
       this.adjustOpacity(0.1)
     })
     

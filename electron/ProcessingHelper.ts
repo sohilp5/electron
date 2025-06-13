@@ -724,260 +724,199 @@ export class ProcessingHelper {
       if (!problemInfo) {
         throw new Error("No problem info available");
       }
+      
+      // == STAGE 1: THE "PLAN" ==
+      const planPrompt = `
+You are an expert coding interview coach. Your task is to create a high-level plan to solve the following problem. Do not write the final optimal code yet. Instead, walk through the thought process a candidate should follow.
 
-      // Update progress status
+The response MUST be structured with the following numbered sections:
+
+1.  **Initial Analysis & Questions:**
+    * Start with a one-sentence summary of the goal.
+    * List 2-3 essential clarifying questions about inputs, outputs, or edge cases.
+
+2.  **Brute-Force Approach:**
+    * Briefly explain the logic of the most straightforward, often naive, solution.
+    * State its Time and Space Complexity and explain its primary inefficiency or bottleneck.
+
+3.  **The "Aha!" Moment / Optimization:**
+    * Concisely explain the key insight that leads to a better solution. (e.g., "The inefficiency comes from repeated lookups. We can optimize this by using a hash map for O(1) lookups.")
+
+4.  **Optimal Solution Plan & Example Walkthrough:**
+    * First, outline the high-level steps for the optimal algorithm.
+    * Next, walk through these steps using the provided example: \`${problemInfo.example_input || "No example provided, please create a simple one (e.g., for Two Sum, use `nums = [2, 7, 11, 15], target = 9`)"}\`.
+    * Show how key variables or data structures (like arrays, pointers, hashmaps) change during the execution of the algorithm with this example. This should be a step-by-step trace of the logic.
+
+---
+**PROBLEM DETAILS:**
+
+**PROBLEM STATEMENT:**
+${problemInfo.problem_statement}
+
+**CONSTRAINTS:**
+${problemInfo.constraints || "No specific constraints provided."}
+
+**EXAMPLE INPUT:**
+${problemInfo.example_input || "Not provided."}
+
+**LANGUAGE:** ${language}
+---
+`;
+
       if (mainWindow) {
         mainWindow.webContents.send("processing-status", {
-          message: "Creating optimal solution with detailed explanations...",
+          message: "Developing solution strategy and plan...",
           progress: 60
         });
       }
 
-      // --- MODIFIED PROMPT (Added instruction for code comments) ---
-      const promptText = `
-Generate a detailed solution for the following coding problem.
-The response MUST be structured with the following numbered sections, starting each on a new line with the exact headers:
-
-1. Thought Process / Walkthrough:
-[Provide a detailed step-by-step explanation of how to arrive at the solution. This should cover:
-- Initial understanding of the problem.
-- Discussion of potential approaches (including naive/brute-force if relevant to the thought process) and their trade-offs.
-- Justification for the chosen (optimal) approach.
-- A high-level plan before coding.
-Use Markdown for formatting, including lists, bolding, italics, and inline code ticks (\`) if needed. Ensure mathematical expressions are LaTeX formatted (e.g., $O(n \\log n)$).]
-
-2. Code:
-\`\`\`${language}
-// Provide a clean, optimized implementation in ${language} here.
-// IMPORTANT: Ensure the code is well-commented, explaining the logic of key parts, variable purposes, and complex operations.
-// The code should be complete and runnable.
-\`\`\`
-
-3. Post-Solution Reflection (Thoughts):
-[Provide a reflection on the solution. This can include:
-- Key insights or learning points.
-- Reasoning behind specific choices in the optimal solution (if not fully covered in the walkthrough).
-- Brief discussion of alternative optimal approaches or minor trade-offs.
-- Edge cases considered.
-Use Markdown for formatting. Ensure mathematical expressions are LaTeX formatted.]
-
-IMPORTANT: You MUST provide sections 4 and 5 in the specified format.
-4. Time Complexity: [Strictly start with O(notation) followed by a hyphen and then your detailed explanation. Example: O(n log n) - This is because the algorithm involves sorting... If complexity cannot be determined, write "O(?) - Detailed analysis pending for time complexity."]
-5. Space Complexity: [Strictly start with O(notation) followed by a hyphen and then your detailed explanation. Example: O(n) - We use an auxiliary array... If complexity cannot be determined, write "O(?) - Detailed analysis pending for space complexity."]
-
-PROBLEM STATEMENT:
-${problemInfo.problem_statement}
-
-CONSTRAINTS:
-${problemInfo.constraints || "No specific constraints provided."}
-
-EXAMPLE INPUT:
-${problemInfo.example_input || "No example input provided."}
-
-EXAMPLE OUTPUT:
-${problemInfo.example_output || "No example output provided."}
-
-LANGUAGE: ${language}
-
-Your solution should be efficient and handle edge cases.
-`;
-      // --- END OF MODIFIED PROMPT ---
-
-
-      let responseContent = ""; // Initialize with empty string
-      
+      let planResponse = "";
       if (config.apiProvider === "openai") {
-        // OpenAI processing
-        if (!this.openaiClient) {
-          return {
-            success: false,
-            error: "OpenAI API key not configured. Please check your settings."
-          };
-        }
-        
-        // Send to OpenAI API
-        const solutionResponse = await this.openaiClient.chat.completions.create({
+        if (!this.openaiClient) return { success: false, error: "OpenAI Client not initialized." };
+        const response = await this.openaiClient.chat.completions.create({
           model: config.solutionModel || "gpt-4o",
-          messages: [
-            { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations, following the specified format strictly." },
-            { role: "user", content: promptText }
-          ],
+          messages: [{ role: "system", content: "You are an expert coding interview coach." }, { role: "user", content: planPrompt }],
           max_tokens: 4000,
           temperature: 0.2
         });
-
-        responseContent = solutionResponse.choices[0].message.content || "";
-      } else if (config.apiProvider === "gemini")  {
-        // Gemini processing
-        if (!this.geminiApiKey) {
-          return {
-            success: false,
-            error: "Gemini API key not configured. Please check your settings."
-          };
-        }
-        
-        try {
-          // Create Gemini message structure
-          const geminiMessages = [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem, following the specified format strictly:\n\n${promptText}`
-                }
-              ]
-            }
-          ];
-
-          // Make API request to Gemini
-          const response = await axios.default.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/${config.solutionModel || "gemini-2.0-flash"}:generateContent?key=${this.geminiApiKey}`,
-            {
-              contents: geminiMessages,
-              generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 4000
-              }
-            },
-            { signal }
-          );
-
-          const responseData = response.data as GeminiResponse;
-          
-          if (!responseData.candidates || responseData.candidates.length === 0 || !responseData.candidates[0].content.parts[0].text) {
-            throw new Error("Empty or invalid response from Gemini API");
-          }
-          
-          responseContent = responseData.candidates[0].content.parts[0].text;
-        } catch (error) {
-          console.error("Error using Gemini API for solution:", error);
-          return {
-            success: false,
-            error: "Failed to generate solution with Gemini API. Please check your API key or try again later."
-          };
-        }
+        planResponse = response.choices[0].message.content || "";
+      } else if (config.apiProvider === "gemini") {
+        if (!this.geminiApiKey) return { success: false, error: "Gemini API Key not configured." };
+        const response = await axios.default.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/${config.solutionModel || "gemini-2.0-flash"}:generateContent?key=${this.geminiApiKey}`,
+          { contents: [{ role: "user", parts: [{ text: planPrompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 4000 } }, { signal }
+        );
+        const responseData = response.data as GeminiResponse;
+        planResponse = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
       } else if (config.apiProvider === "anthropic") {
-        // Anthropic processing
-        if (!this.anthropicClient) {
-          return {
-            success: false,
-            error: "Anthropic API key not configured. Please check your settings."
-          };
-        }
-        
-        try {
-          const messages: Anthropic.Messages.MessageParam[] = [ 
-            {
-              role: "user" as const, 
-              content: [
-                {
-                  type: "text" as const, 
-                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem, following the specified format strictly:\n\n${promptText}`
-                }
-              ]
-            }
-          ];
-
-          // Send to Anthropic API
-          const response = await this.anthropicClient.messages.create({
-            model: config.solutionModel || "claude-3-7-sonnet-20250219", 
-            max_tokens: 4000,
-            messages: messages,
-            temperature: 0.2
-          });
-          
-          if (Array.isArray(response.content) && response.content.length > 0 && response.content[0].type === 'text') {
-            responseContent = response.content[0].text;
-          } else {
-            throw new Error("Invalid response format from Anthropic API");
-          }
-
-        } catch (error: any) {
-          console.error("Error using Anthropic API for solution:", error);
-
-          if (error.status === 429) {
-            return {
-              success: false,
-              error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
-            };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
-            return {
-              success: false,
-              error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
-            };
-          }
-
-          return {
-            success: false,
-            error: "Failed to generate solution with Anthropic API. Please check your API key or try again later."
-          };
+        if (!this.anthropicClient) return { success: false, error: "Anthropic Client not initialized." };
+        const response = await this.anthropicClient.messages.create({
+          model: config.solutionModel || "claude-3-7-sonnet-20250219",
+          messages: [{ role: "user", content: planPrompt }],
+          max_tokens: 4000,
+          temperature: 0.2
+        });
+        if (Array.isArray(response.content) && response.content[0].type === 'text') {
+            planResponse = response.content[0].text;
         }
       }
-      
-      // --- PARSING LOGIC (Simplified for complexity) ---
+
+      if (signal.aborted) return { success: false, error: "Processing was canceled." };
+      if (!planResponse) return { success: false, error: "Failed to generate a solution plan from the AI." };
+
+      // == STAGE 2: THE "EXECUTION" ==
+      const executionPrompt = `
+You are an expert programmer executing a given plan. Your task is to write the final, optimal code and provide a concluding analysis based on the plan below.
+
+**THE PLAN YOU MUST FOLLOW:**
+---
+${planResponse}
+---
+
+Your response MUST be structured with the following numbered sections, starting each on a new line with the exact headers:
+
+1. Code:
+\`\`\`${language}
+// Provide the clean, optimal, and **heavily-commented** implementation in ${language}.
+// The comments MUST narrate the implementation process, explaining the 'why' behind the code, the purpose of variables, and the logic of each step as if you are thinking aloud during an interview.
+\`\`\`
+
+2. Post-Solution Reflection (Thoughts):
+* **Edge Cases:** List the critical edge cases the optimal solution handles or that should be tested.
+* **Alternative Approaches:** Briefly mention one other valid approach and its trade-offs.
+
+3. Time Complexity:
+[Strictly start with O(notation) for the OPTIMAL solution, followed by a hyphen and a concise justification. Example: O(n) - The algorithm iterates through the input array a single time.]
+
+4. Space Complexity:
+[Strictly start with O(notation) for the OPTIMAL solution, followed by a hyphen and a concise justification. Example: O(n) - In the worst case, the hash map may store all unique elements from the input.]
+
+---
+**REMINDER OF PROBLEM LANGUAGE:** ${language}
+---
+`;
+
+      if (mainWindow) {
+        mainWindow.webContents.send("processing-status", {
+          message: "Writing optimal code with detailed explanations...",
+          progress: 80
+        });
+      }
+
+      let executionResponse = "";
+      if (config.apiProvider === "openai") {
+        if (!this.openaiClient) return { success: false, error: "OpenAI Client not initialized." };
+        const response = await this.openaiClient.chat.completions.create({
+          model: config.solutionModel || "gpt-4o",
+          messages: [{ role: "system", content: "You are an expert programmer executing a plan." }, { role: "user", content: executionPrompt }],
+          max_tokens: 4000,
+          temperature: 0.2
+        });
+        executionResponse = response.choices[0].message.content || "";
+      } else if (config.apiProvider === "gemini") {
+        if (!this.geminiApiKey) return { success: false, error: "Gemini API Key not configured." };
+        const response = await axios.default.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/${config.solutionModel || "gemini-2.0-flash"}:generateContent?key=${this.geminiApiKey}`,
+          { contents: [{ role: "user", parts: [{ text: executionPrompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 4000 } }, { signal }
+        );
+        const responseData = response.data as GeminiResponse;
+        executionResponse = responseData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      } else if (config.apiProvider === "anthropic") {
+        if (!this.anthropicClient) return { success: false, error: "Anthropic Client not initialized." };
+        const response = await this.anthropicClient.messages.create({
+          model: config.solutionModel || "claude-3-7-sonnet-20250219",
+          messages: [{ role: "user", content: executionPrompt }],
+          max_tokens: 4000,
+          temperature: 0.2
+        });
+        if (Array.isArray(response.content) && response.content[0].type === 'text') {
+            executionResponse = response.content[0].text;
+        }
+      }
+
+      // == COMBINE AND PARSE ==
       const sections = {
-        walkthrough: "Walkthrough not found in AI response.",
+        walkthrough: planResponse.trim(), // The entire plan is the walkthrough
         code: `// Code in ${language} not found in AI response.`,
         reflection: "Reflection not found in AI response.",
-        time_complexity: "Time complexity information was not provided by the AI in the expected format.", // Default
-        space_complexity: "Space complexity information was not provided by the AI in the expected format." // Default
+        time_complexity: "Time complexity information was not provided.",
+        space_complexity: "Space complexity information was not provided."
       };
-
-      const responseContentTrimmed = responseContent.trim();
-
-      const walkthroughRegex = /1\.\s*Thought Process \/ Walkthrough:([\s\S]*?)(?=\n2\.\s*Code:|$)/i;
-      const codeRegex = /2\.\s*Code:\s*```(?:[a-z0-9_.-]+)?\s*([\s\S]*?)\s*```/i; 
-      const reflectionRegex = /3\.\s*Post-Solution Reflection \(Thoughts\):([\s\S]*?)(?=\n4\.\s*Time Complexity:|$)/i;
-      // Regexes for complexity now look for the header and capture everything until the next numbered section or end.
-      const timeComplexityRegex = /4\.\s*Time Complexity:\s*([\s\S]*?)(?=\n5\.\s*Space Complexity:|$)/i;
-      const spaceComplexityRegex = /5\.\s*Space Complexity:\s*([\s\S]*?)(?=\n\s*(?:[A-Z]|$)|$)/i; // End or next major section
-
-      const walkthroughMatch = responseContentTrimmed.match(walkthroughRegex);
-      if (walkthroughMatch && walkthroughMatch[1]) {
-        sections.walkthrough = walkthroughMatch[1].trim();
-      }
       
-      const codeMatch = responseContentTrimmed.match(codeRegex);
+      const executionContent = executionResponse.trim();
+
+      const codeRegex = /1\.\s*Code:\s*```(?:[a-z0-9_.-]+)?\s*([\s\S]*?)\s*```/i;
+      const reflectionRegex = /2\.\s*Post-Solution Reflection \(Thoughts\):([\s\S]*?)(?=\n3\.\s*Time Complexity:|$)/i;
+      const timeComplexityRegex = /3\.\s*Time Complexity:\s*([\s\S]*?)(?=\n4\.\s*Space Complexity:|$)/i;
+      const spaceComplexityRegex = /4\.\s*Space Complexity:\s*([\s\S]*?)(?=$)/i;
+
+      const codeMatch = executionContent.match(codeRegex);
       if (codeMatch && codeMatch[1]) {
         sections.code = codeMatch[1].trim();
-      } else {
-        const genericCodeBlockMatch = responseContentTrimmed.match(/```(?:[a-z0-9_.-]+)?\s*([\s\S]*?)\s*```/i);
-        if (genericCodeBlockMatch && genericCodeBlockMatch[1]) {
-            const textBeforeCode = responseContentTrimmed.substring(0, genericCodeBlockMatch.index).toLowerCase();
-            const isInWalkthrough = walkthroughMatch && genericCodeBlockMatch.index > walkthroughMatch.index && genericCodeBlockMatch.index < (walkthroughMatch.index + walkthroughMatch[0].length);
-            const reflectionMatchForCodeCheck = responseContentTrimmed.match(reflectionRegex);
-            const isInReflection = reflectionMatchForCodeCheck && genericCodeBlockMatch.index > reflectionMatchForCodeCheck.index && genericCodeBlockMatch.index < (reflectionMatchForCodeCheck.index + reflectionMatchForCodeCheck[0].length);
-
-            if (!isInWalkthrough && !isInReflection) {
-                 sections.code = genericCodeBlockMatch[1].trim();
-                 console.warn("Used fallback regex for code extraction.");
-            }
-        }
       }
 
-      const reflectionMatch = responseContentTrimmed.match(reflectionRegex);
+      const reflectionMatch = executionContent.match(reflectionRegex);
       if (reflectionMatch && reflectionMatch[1]) {
         sections.reflection = reflectionMatch[1].trim();
       }
-      
-      const timeMatch = responseContentTrimmed.match(timeComplexityRegex);
-      if (timeMatch && timeMatch[1] && timeMatch[1].trim() !== "") {
-        sections.time_complexity = timeMatch[1].trim(); // Use the raw captured content
-      }
-      
-      const spaceMatch = responseContentTrimmed.match(spaceComplexityRegex);
-      if (spaceMatch && spaceMatch[1] && spaceMatch[1].trim() !== "") {
-         sections.space_complexity = spaceMatch[1].trim(); // Use the raw captured content
-      }
 
+      const timeMatch = executionContent.match(timeComplexityRegex);
+      if (timeMatch && timeMatch[1]) {
+        sections.time_complexity = timeMatch[1].trim();
+      }
+      
+      const spaceMatch = executionContent.match(spaceComplexityRegex);
+      if (spaceMatch && spaceMatch[1]) {
+        sections.space_complexity = spaceMatch[1].trim();
+      }
+      
       const formattedResponse = {
         walkthrough: sections.walkthrough,
         code: sections.code,
-        reflection: sections.reflection, 
+        reflection: sections.reflection,
         time_complexity: sections.time_complexity,
         space_complexity: sections.space_complexity
       };
-      // --- END OF PARSING LOGIC ---
 
       return { success: true, data: formattedResponse };
     } catch (error: any) {
@@ -991,12 +930,12 @@ Your solution should be efficient and handle edge cases.
       if (error?.response?.status === 401) {
         return {
           success: false,
-          error: "Invalid OpenAI API key. Please check your settings."
+          error: "Invalid API key. Please check your settings."
         };
       } else if (error?.response?.status === 429) {
         return {
           success: false,
-          error: "OpenAI API rate limit exceeded or insufficient credits. Please try again later."
+          error: "API rate limit exceeded or insufficient credits. Please try again later."
         };
       }
       
