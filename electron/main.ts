@@ -92,7 +92,10 @@ const state = {
     INITIAL_SOLUTION_ERROR: "solution-error",
     DEBUG_START: "debug-start",
     DEBUG_SUCCESS: "debug-success",
-    DEBUG_ERROR: "debug-error"
+    DEBUG_ERROR: "debug-error",
+    GENERAL_PROBLEM_SUMMARY_START: "general-problem-summary-start",
+    GENERAL_PROBLEM_SUMMARY_SUCCESS: "general-problem-summary-success",
+    GENERAL_PROBLEM_SUMMARY_ERROR: "general-problem-summary-error"
   } as const
 }
 

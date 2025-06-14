@@ -697,7 +697,7 @@ export class ProcessingHelper {
       } else if (error?.response?.status === 429) {
         return {
           success: false,
-          error: "OpenAI API rate limit exceeded or insufficient credits. Please try again later."
+          error: "API rate limit exceeded or insufficient credits. Please try again later."
         };
       } else if (error?.response?.status === 500) {
         return {
@@ -1256,191 +1256,163 @@ If you include code examples, use proper markdown code blocks with language spec
     }
   }
 
-  private async processGeneralProblemLLM(
-    screenshots: Array<{ path: string; data: string }>,
-    signal: AbortSignal
-  ): Promise<{ success: boolean; data?: any; error?: string }> {
-    const config = configHelper.loadConfig();
-    const imageDataList = screenshots.map(s => s.data);
-    const generalProblemPrompt = ` Role: Elite Problem-Solving Assistant.
-Task: Analyze problems from screenshots. Deliver exceptionally clear, detailed, insightful, structured solutions demonstrating expert-level understanding. First, identify the problem type, then meticulously follow the specific instructions for that type below.
+  // --- START: MODIFIED SECTION FOR NEW LOGIC ---
 
-**Tailored Instructions by Problem Type:**
-It will be one of these, first identify the type of problem from this:
-* **Mathematical Problems:**
-    1.  **Setup:** Define variables, constants, units. State relevant theorems, formulas, and assumptions.
-    2.  **Derivation:** Present steps sequentially (LaTeX for math) with brief justifications for each transformation or logical leap.
-    3.  **Result & Verification:** State the final solution unambiguously. If applicable, discuss verification methods or plausibility.
-
-* **Multiple-Choice Questions (MCQs):**
-    1.  **Correct Option:** Clearly state it (e.g., "The correct option is C").
-    2.  **Rationale for Correctness:** Provide a detailed justification (underlying principles, calculations, information).
-    3.  **Analysis of Incorrect Options:** For *each* incorrect option, give a specific, thorough explanation of its flaws (pinpoint errors in reasoning, facts, or concepts). Avoid generic dismissals.
-
-* **Data Cleaning Exercises (Python-focused):** (Goal: Deliver a WOW factor. Be extremely verbose and insightful. Highlight common and advanced pitfalls comprehensively.)
-    1.  **Issue Diagnosis:** From the provided context (even if implicit), identify and list common and specific data quality issues (e.g., missing values, outliers, inconsistencies, type errors).
-    2.  **Strategic Cleaning Plan:** For each issue, propose specific cleaning techniques or transformations.
-    3.  **Code Implementation (Python):** Provide clean, efficient, and well-commented Python code (prefer pandas, numpy) for each step.
-    4.  **Justification & Implications:** Explain the rationale behind each cleaning decision and discuss its potential impact (positive or negative) on downstream analysis/modeling.
-    5.  **Common & Expert Mistakes:** (EXTREME VERBOSITY REQUIRED) Detail frequent errors and subtle mistakes, even those made by experienced practitioners. Explain *why* these are mistakes and their consequences.
-    6. IMP: **"Wow Factor":** this section should add something that completely impresses 
-
-* **Case Studies:** (Persona: Ultra-Experienced Domain Scientist/Strategist. Goal: Deliver a WOW factor. Provide profound, novel insights, comprehensive strategies, and extreme verbosity. Your response should be a masterclass, leaving no stone unturned.)
-    1.  **Industry Context & Core Challenge:** Start with a concise yet thorough domain background, define the core challenges, and preview your overarching conclusions or strategic recommendations.
-    2.  **Systematic Deconstruction:** Articulate central issues, objectives, stakeholders, constraints, and critical success factors.
-    3.  **Advanced Analytical Framework:** Propose and justify a sophisticated analytical framework (or a combination) suitable for the case.
-    4.  **Deep-Dive Analysis & Novel Insights:** (EXTREME VERBOSITY REQUIRED)
-        * Leverage your expert persona to offer profound, non-obvious insights.
-        * Focus on subtle interdependencies, second-order effects, unstated assumptions, and points commonly overlooked.
-        * Critically evaluate all data/evidence, noting strengths, weaknesses, and potential biases.
-        * Explore multiple perspectives, rigorously challenge superficial conclusions, and anticipate counter-arguments.
-    5.  **Structured Findings:** (EXTREME VERBOSITY REQUIRED) Present your analysis under clear, thematic headings with detailed point-by-point arguments, ensuring a logical and compelling narrative.
-    6.  **Strategic Recommendations & Implications:** (EXTREME VERBOSITY REQUIRED) Conclude with robust, evidence-based, actionable recommendations. Discuss strategic implications, potential risks, mitigation strategies, and key performance indicators (KPIs).
-    7.  **Common & Expert Mistakes:** (EXTREME VERBOSITY REQUIRED) Detail frequent and subtle strategic or analytical errors relevant to the case, including those made by seasoned professionals. Explain their impact.
-    8. IMP: **"Wow Factor":** this section should add something that completely impresses 
-
-**Formatting:**
-Use Markdown for headings, lists, and bolding. Use LaTeX for math ($inline$ or $$display$$). Use python for code blocks.
-`;
-
-// You can then use this constant in your application logic, for example,
-// when constructing the messages array for an API call to an LLM.
-// console.log(generalProblemPrompt);
-    const mainWindow = this.deps.getMainWindow();
-    if (mainWindow) {
-      mainWindow.webContents.send("processing-status", {
-         message: "Analyzing general problem from screenshots...",
-         progress: 20 
-      });
-    }
-
-    try {
-      let responseContent;
-      const modelForGeneralProblem = config.solutionModel || (config.apiProvider === "anthropic" ? "claude-3-7-sonnet-20250219" : "gpt-4o"); 
-
-      if (config.apiProvider === "openai" && this.openaiClient) {
-        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-          { role: "system", content: generalProblemPrompt },
-          { role: "user", content: [ { type: "text", text: "Solve the problem in these images step by step:" }, ...imageDataList.map(data => ({ type: "image_url" as const, image_url: { url: `data:image/png;base64,${data}` } })) ] }
-        ];
-        if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Generating step-by-step solution...", progress: 60 });
-        const response = await this.openaiClient.chat.completions.create({ model: modelForGeneralProblem, messages: messages, max_tokens: 4000, temperature: 0.4 }, { signal });
-        responseContent = response.choices[0].message.content;
-
-      } else if (config.apiProvider === "gemini" && this.geminiApiKey) {
-        const geminiMessages: GeminiMessage[] = [
-            { role: "user", parts: [
-                { text: generalProblemPrompt + "\nSolve the problem in these images step by step:" },
-                ...imageDataList.map(data => ({ inlineData: { mimeType: "image/png", data: data } }))
-            ]}
-        ];
-        if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Generating step-by-step solution with Gemini...", progress: 60 });
-        const geminiModel = config.solutionModel || "gemini-2.0-flash"; 
-        const response = await axios.default.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${this.geminiApiKey}`,
-          { contents: geminiMessages, generationConfig: { temperature: 0.4, maxOutputTokens: 4000 } }, { signal }
-        );
-        const responseData = response.data as GeminiResponse;
-        if (!responseData.candidates || responseData.candidates.length === 0 || !responseData.candidates[0].content.parts[0].text) {
-          throw new Error("Invalid or empty response from Gemini API for general problem.");
-        }
-        responseContent = responseData.candidates[0].content.parts[0].text;
-      } else if (config.apiProvider === "anthropic" && this.anthropicClient) {
-         const messages: Anthropic.Messages.MessageParam[] = [
-            { role: "user" as const, content: [
-                { type: "text" as const, text: generalProblemPrompt + "\nSolve the problem shown in these image(s) step by step:" },
-                ...imageDataList.map(data => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/png" as const, data: data }})),
-            ]}
-        ];
-        if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Generating step-by-step solution with Anthropic...", progress: 60 });
-        const anthropicModel = config.solutionModel || "claude-3-7-sonnet-20250219"; 
-        const response = await this.anthropicClient.messages.create({ model: anthropicModel, max_tokens: 4000, messages: messages, temperature: 0.4 }, {signal});
-        
-        if (Array.isArray(response.content) && response.content.length > 0 && response.content[0].type === 'text') {
-            responseContent = response.content[0].text;
-        } else {
-            throw new Error("Invalid response format from Anthropic API for general problem.");
-        }
-      } else {
-        return { success: false, error: "AI provider not configured or client not initialized." };
-      }
-
-      if (mainWindow) mainWindow.webContents.send("processing-status", { message: "Solution received.", progress: 100 });
-      return { success: true, data: { solution: responseContent } };
-
-    } catch (error: any) {
-      console.error("Error processing general problem with AI:", error);
-       if (axios.isCancel(error)) return { success: false, error: "Processing was canceled." };
-      return { success: false, error: error.message || "Failed to process general problem with AI." };
-    }
-  }
-
-  public async processGeneralProblem(): Promise<void> {
-    const mainWindow = this.deps.getMainWindow();
-    if (!mainWindow) return;
-
-    const config = configHelper.loadConfig();
-     if ((config.apiProvider === "openai" && !this.openaiClient) ||
-        (config.apiProvider === "gemini" && !this.geminiApiKey) ||
-        (config.apiProvider === "anthropic" && !this.anthropicClient)
-    ) {
-        this.initializeAIClient();
-        if ((config.apiProvider === "openai" && !this.openaiClient) ||
-            (config.apiProvider === "gemini" && !this.geminiApiKey) ||
-            (config.apiProvider === "anthropic" && !this.anthropicClient)
-        ) {
-            console.error(`${config.apiProvider} client/key not initialized`);
-            mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.API_KEY_INVALID);
-            return;
-        }
-    }
-
-    const GENERAL_PROBLEM_START = "general-problem-start";
-    const GENERAL_PROBLEM_SUCCESS = "general-problem-success";
-    const GENERAL_PROBLEM_ERROR = "general-problem-error";
-
-    mainWindow.webContents.send(GENERAL_PROBLEM_START);
-    const screenshotQueue = this.screenshotHelper.getScreenshotQueue();
-
-    if (!screenshotQueue || screenshotQueue.length === 0) {
-      mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.NO_SCREENSHOTS);
-      return;
-    }
-    const existingScreenshots = screenshotQueue.filter(p => fs.existsSync(p));
-     if (existingScreenshots.length === 0) {
-        mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.NO_SCREENSHOTS);
-        return;
-    }
-
-    this.currentProcessingAbortController = new AbortController(); 
+  public async processSingleGeneralProblem(newScreenshotPath: string, contextScreenshotPaths: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
+    this.currentProcessingAbortController = new AbortController();
     const { signal } = this.currentProcessingAbortController;
 
     try {
-      const screenshotsData = await Promise.all(
-        existingScreenshots.map(async (p) => ({
-          path: p,
-          data: fs.readFileSync(p).toString("base64"),
-        }))
-      );
+      const isInitialAnalysis = contextScreenshotPaths.length === 0;
 
-      const result = await this.processGeneralProblemLLM(screenshotsData, signal);
+      const newScreenshotData = fs.readFileSync(newScreenshotPath).toString("base64");
+      const contextScreenshotsData = contextScreenshotPaths.map(p => fs.readFileSync(p).toString("base64"));
+      const allImageData = [...contextScreenshotsData, newScreenshotData];
 
-      if (result.success) {
-        mainWindow.webContents.send(GENERAL_PROBLEM_SUCCESS, result.data);
+      const initialAnalysisPrompt = `You are a BCG case interview strategist. This is the first piece of information for a new case, likely the problem statement. Generate a DENSE stream of differentiated talking points based *only* on this initial view. Every line should make an interviewer think "I haven't heard this angle before."
+
+**GENERATE THIS EXACT FORMAT:**
+
+🎯 **OPENING SALVO** (30 seconds of gold)
+- Reframe: "This looks like [obvious thing] but it's actually [sophisticated insight]"
+- Hidden assumption to challenge: "[What client believes] but have we validated [contrarian view]?"
+- Industry parallel: "Similar to how [Company X] faced [analogous situation] in [Year]"
+- Strategic altitude: "Before diving into [tactical issue], the real question is [strategic issue]"
+
+📐 **FRAMEWORK 2.0** (A custom framework for THIS case)
+**[Custom Framework Name for THIS case]**
+1. **[Bucket 1]**:
+    - Key questions: [2-3 specific, non-obvious questions]
+    - Data needed: [Specific metrics others won't ask for]
+2. **[Bucket 2]**:
+    - Key questions: [2-3 specific questions]
+    - Watch for: [Common blind spot]
+3. **[Bucket 3]**:
+    - Key questions: [2-3 specific questions]
+    - Risk factor: [What could break]
+
+💡 **HYPOTHESIS BATTERY** (Pick 2-3 to test)
+- H1: [Specific, testable hypothesis with clear data needs]
+- H2: [Counter-hypothesis that flips conventional wisdom]
+- H3: [Systems-level hypothesis about root cause]
+
+⚡ **CRITICAL QUESTIONS TO ASK NOW**
+1. "What would have to be true for [contrarian strategy] to work?"
+2. "Where is the client's mental model misaligned with market reality?"
+3. "What's the one metric that, if it moved 20%, would change everything?"`;
+
+      const incrementalAnalysisPrompt = `You are a BCG case interview strategist continuing a case analysis. You have the context of the previous information (in the first image(s)). Now, a new piece of data has been provided (in the final image).
+
+Your task is to **analyze the new information** and synthesize it with the existing context. FOCUS ON WHAT IS NEW. What does this new chart/table/data tell you? How does it confirm, deny, or modify your previous hypotheses?
+
+**GENERATE THIS EXACT FORMAT:**
+
+📊 **NEW DATA - ADVANCED READS**
+- Pattern break: "The new data shows [X] but notice how [segment/time] breaks the previous pattern"
+- Missing middle: "We now see [extremes], but what about [middle segment]?"
+- Ratio insight: "[New Metric A] ÷ [Existing Metric B] reveals [hidden dynamic]"
+- Trajectory trap: "The new trend suggests [X], but [leading indicator] from before warns of [Y]"
+- Cross-reference: "Combining this new chart with the previous information exposes [synthesis]"
+
+💡 **HYPOTHESIS UPDATE**
+- **Confirmed/Modified H1:** [How the new data impacts H1]
+- **New Hypothesis H4:** [A new hypothesis prompted by this data]
+- **Data Conflict:** [Does this data conflict with anything seen before? How?]
+
+🔍 **INTERVIEW JUJITSU** (New questions this data lets you ask)
+- "This data on [X] is interesting, but it makes me question our assumption about [Y]. Can we double-check that?"
+- "Given this, the bottleneck seems to have shifted from [old constraint] to [new constraint]. Is that correct?"
+
+⚡ **CRITICAL QUESTIONS RAISED BY THIS DATA**
+1. "This implies we need to [action]. What capability do we need to build to do that?"
+2. "If this trend continues, what's the biggest risk in the next 6 months?"`;
+
+      const prompt = isInitialAnalysis ? initialAnalysisPrompt : incrementalAnalysisPrompt;
+      const userMessage = isInitialAnalysis
+        ? "Analyze the case presented in this image."
+        : "Analyze the new information in the final image, using the previous images for context.";
+
+      const config = configHelper.loadConfig();
+      let responseContent;
+      const model = config.solutionModel || "gpt-4o";
+
+      if (config.apiProvider === 'openai' && this.openaiClient) {
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+          { role: "system", content: prompt },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userMessage },
+              ...allImageData.map(data => ({ type: "image_url" as const, image_url: { url: `data:image/png;base64,${data}` } }))
+            ]
+          }
+        ];
+        const response = await this.openaiClient.chat.completions.create({ model, messages, max_tokens: 4000, temperature: 0.4 }, { signal });
+        responseContent = response.choices[0].message.content;
       } else {
-         if (result.error?.includes("API key") || result.error?.includes("OpenAI") || result.error?.includes("Gemini") || result.error?.includes("Anthropic")) {
-            mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.API_KEY_INVALID);
-        } else {
-            mainWindow.webContents.send(GENERAL_PROBLEM_ERROR, result.error);
-        }
+        return { success: false, error: "This AI provider is not configured for this action." };
       }
+
+      return { success: true, data: { solution: responseContent } };
+
     } catch (error: any) {
-      console.error("Error in processGeneralProblem:", error);
-      mainWindow.webContents.send(GENERAL_PROBLEM_ERROR, error.message || "An unknown error occurred.");
+      console.error("Error in processSingleGeneralProblem:", error);
+      if (axios.isCancel(error)) return { success: false, error: "Processing was canceled." };
+      return { success: false, error: error.message || "Failed to process general problem." };
     } finally {
-        this.currentProcessingAbortController = null; 
+        this.currentProcessingAbortController = null;
     }
   }
+  
+  public async summarizeAnalyses(analyses: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
+    const summarizationPrompt = `You are a BCG case interview strategist who has just completed a multi-stage case analysis. You will be given the sequence of your own analyses.
+
+Your task is to synthesize ALL the insights into a final, impactful recommendation for the client. The output must be structured, actionable, and persuasive.
+
+**GENERATE THIS EXACT FORMAT:**
+
+🚀 **CLOSING CRESCENDO** (Land the plane with impact)
+- **Core Synthesis:** "The central issue isn't [obvious problem], but rather [deeper, non-obvious connection between all findings]."
+- **Strategic Recommendation:** "Therefore, we recommend a three-pronged approach:
+    1. **Do This First (Next 90 Days):** [Specific, immediate action] to capture [specific value].
+    2. **Then Do This (Next 6-12 Months):** [Second, larger action] to build [specific capability].
+    3. **And This for the Long Term:** [Third, strategic move] to secure [long-term advantage]."
+- **Key Risk & Mitigation:** "The biggest risk to this plan is [specific risk, e.g., competitor reaction, customer adoption]. We can hedge this by [specific monitoring metric and threshold]."
+- **The 'So What' for the Client:** "Successfully executing this unlocks the ability to [bigger, adjacent opportunity], transforming the business from [current state] to [future state]."`;
+
+    const userMessage = `Here are the sequential analyses of the case. Please synthesize them into a final recommendation:\n\n---\n\n` + analyses.join('\n\n---\n\n');
+    
+    this.currentProcessingAbortController = new AbortController();
+    const { signal } = this.currentProcessingAbortController;
+
+    try {
+        const config = configHelper.loadConfig();
+        let summaryContent;
+        const model = config.solutionModel || "gpt-4o";
+
+        if (config.apiProvider === 'openai' && this.openaiClient) {
+             const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+                { role: "system", content: summarizationPrompt },
+                { role: "user", content: userMessage }
+            ];
+            const response = await this.openaiClient.chat.completions.create({ model, messages, max_tokens: 4000, temperature: 0.4 }, { signal });
+            summaryContent = response.choices[0].message.content;
+        } else {
+             return { success: false, error: "This AI provider is not configured for summarization." };
+        }
+
+        return { success: true, data: { summary: summaryContent } };
+
+    } catch (error: any) {
+        console.error("Error in summarizeAnalyses:", error);
+        if (axios.isCancel(error)) return { success: false, error: "Summarization was canceled." };
+        return { success: false, error: "Failed to generate summary." };
+    } finally {
+      this.currentProcessingAbortController = null;
+    }
+  }
+
+  // NOTE: The old processGeneralProblem and processGeneralProblemLLM have been removed.
 
   public cancelOngoingRequests(): void {
     let wasCancelled = false

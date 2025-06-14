@@ -349,21 +349,37 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
     }
   })
 
-    ipcMain.handle("trigger-process-general-problem", async () => {
+  // --- START: MODIFIED SECTION FOR NEW LOGIC ---
+
+  ipcMain.handle("process-general-problem", async (event, { newScreenshotPath, contextPaths }: { newScreenshotPath: string, contextPaths: string[] }) => {
     if (!configHelper.hasApiKey()) {
         const mainWindow = deps.getMainWindow();
         if (mainWindow) {
-            // Ensure PROCESSING_EVENTS is correctly accessed, e.g., from deps or a shared source
             mainWindow.webContents.send(deps.PROCESSING_EVENTS.API_KEY_INVALID);
         }
         return { success: false, error: "API key required" };
     }
-    // Ensure processingHelper and its new method are available
-    if (deps.processingHelper && typeof deps.processingHelper.processGeneralProblem === 'function') {
-      await deps.processingHelper.processGeneralProblem();
-      return { success: true };
+
+    if (deps.processingHelper && typeof deps.processingHelper.processSingleGeneralProblem === 'function') {
+      return await deps.processingHelper.processSingleGeneralProblem(newScreenshotPath, contextPaths);
     }
-    return { success: false, error: "General problem processing not available." };
+    return { success: false, error: "General problem processing function not available." };
   });
   
+  ipcMain.handle("summarize-general-problem", async (event, { analyses }: { analyses: string[] }) => {
+     if (!configHelper.hasApiKey()) {
+        const mainWindow = deps.getMainWindow();
+        if (mainWindow) {
+            mainWindow.webContents.send(deps.PROCESSING_EVENTS.API_KEY_INVALID);
+        }
+        return { success: false, error: "API key required" };
+    }
+    
+    if (deps.processingHelper && typeof deps.processingHelper.summarizeAnalyses === 'function') {
+      return await deps.processingHelper.summarizeAnalyses(analyses);
+    }
+    return { success: false, error: "Summarization function not available." };
+  });
+
+  // --- END: MODIFIED SECTION FOR NEW LOGIC ---
 }

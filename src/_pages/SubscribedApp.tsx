@@ -83,11 +83,25 @@ const SubscribedApp: React.FC<SubscribedAppProps> = ({
         showToast("General Problem Error", error, "error");
         setView("queue"); // Revert to queue on error
       }),
-      // --- END OF ADDED/MODIFIED CODE for General Problem Solver ---
+           // ADD THESE NEW LISTENERS FOR SUMMARY
+      window.electronAPI.onGeneralProblemSummaryStart(() => {
+        console.log("General Problem Summary Start event received in SubscribedApp");
+        // You might want to show a loading indicator for the summary
+      }),
+      window.electronAPI.onGeneralProblemSummarySuccess((data: any) => {
+        console.log("General Problem Summary Success event received in SubscribedApp", data);
+        queryClient.setQueryData(["general_problem_summary"], data);
+        // The GeneralProblemSolver component will use this query data to show the summary
+      }),
+      window.electronAPI.onGeneralProblemSummaryError((error: string) => {
+        console.error("General Problem Summary Error event received in SubscribedApp", error);
+        showToast("General Problem Summary Error", error, "error");
+      }),
     ];
 
     return () => cleanupFunctions.forEach((fn) => fn());
   }, [queryClient, showToast, view, setView]); // Added view to dependency array
+
 
   // // Dynamically update the window size
   // useEffect(() => {
